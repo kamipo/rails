@@ -1,3 +1,18 @@
+*   Add `config.active_record.respect_association_scope_limits` to apply an
+    association scope's `limit`/`offset` to each record's own associated
+    records.
+
+    `eager_load` dropped the `limit`, the `offset` and the scope's `order`
+    from its `LEFT OUTER JOIN`, returning every associated record. With the
+    option enabled it runs the scope once per owner with a `LATERAL`
+    subquery, on adapters that support one (PostgreSQL, MySQL 8.0.14+).
+
+    Disabled by default.
+
+    *Ryuta Kamizono*
+
+*   Deprecate `supports_identity_columns?` on the PostgreSQL adapter.
+
 *   Fix `where` and `having` not parenthesizing bound SQL literals passed as Arel nodes.
 
     An `OR` in such a node could escape a neighbouring condition, including
@@ -607,7 +622,6 @@
     They also failed on a table whose name contains a dot.
 
     *Sergei Malykh*
-
 *   Fix `remove_index` and `index_exists?` in migrations declaring version 4.2
     to honor `table_name_prefix` and `table_name_suffix`.
 
@@ -814,7 +828,6 @@
     ```
 
     *Yasuo Honda*
-
 *   Add `maintenance_database` option to the PostgreSQL adapter.
 
     `bin/rails db:create`, `db:drop` and `db:purge` connect to the `postgres`
