@@ -41,19 +41,103 @@ module ActiveRecord
           def load_records_for_keys(keys, &block)
             return [] if keys.empty?
 
-            if destination_key_name.is_a?(Array)
-              query_constraints = Hash.new { |hsh, key| hsh[key] = Set.new }
-              keys.each_with_object(query_constraints) do |values_set, constraints|
-                destination_key_name.each_with_index do |key_name, index|
-                  constraints[key_name] << values_set[index]
+            filtered = apply_key_filter(keys)
+
+            if ActiveRecord.respect_association_scope_limits &&
+                (filtered.limit_value || filtered.offset_value)
+              filtered = partition_by_owner(filtered, keys)
+            end
+
+            filtered.load(&block)
+          end
+
+          private
+            def apply_key_filter(keys)
+              if destination_key_name.is_a?(Array)
+                query_constraints = Hash.new { |hsh, key| hsh[key] = Set.new }
+                keys.each_with_object(query_constraints) do |values_set, constraints|
+                  destination_key_name.each_with_index do |key_name, index|
+                    constraints[key_name] << values_set[index]
+                  end
+                end
+
+                scope.where(query_constraints)
+              else
+                scope.where(destination_key_name => keys)
+              end
+            end
+
+            def partition_by_owner(relation, keys)
+              relation.model.with_connection do |connection|
+                if connection.supports_lateral_joins? && connection.supports_values_table?
+                  partition_by_lateral(relation, keys, connection)
+                else
+                  relation
                 end
               end
+            end
 
-              scope.where(query_constraints)
-            else
-              scope.where(destination_key_name => keys)
-            end.load(&block)
-          end
+            def partition_by_lateral(relation, keys, connection)
+              model = relation.model
+              table = model.arel_table
+              key_names = Array(destination_key_name)
+              owners = Arel::Table.new(name: "__preload_owners")
+
+              # A row per owner key to run the scope against. The keys travel as
+              # bind parameters, so batches of the same size can share a
+              # prepared statement.
+              types = key_names.map { |name| model.type_for_attribute(name) }
+              rows = keys.map do |values|
+                Array(values).each_with_index.map do |value, i|
+                  Arel::Nodes::BindParam.new(Relation::QueryAttribute.new(key_names[i], value, types[i]))
+                end
+              end
+              owner_keys = connection.values_table(
+                owners.name, key_names, rows,
+                sql_types: key_names.map { |name| model.columns_hash[name]&.sql_type }
+              )
+
+              # Correlate on `scope`, not on the filtered relation: `unscope`ing
+              # its `IN` filter would take the scope's own conditions on the key
+              # column with it.
+              inner = scope.where(
+                key_names.map { |name| table[name].eq(owners[name]) }.inject(:and)
+              )
+
+              join = Arel::Nodes::CrossJoin.new(
+                Arel::Nodes::TableAlias.new(Arel::Nodes::Lateral.new(inner.arel.ast), table.name)
+              )
+
+              lateral = model.unscoped.from(owner_keys)
+                             .joins(join)
+                             .select(table[Arel.star])
+
+              orders = outer_orders(relation)
+              orders.empty? ? lateral : lateral.order(*orders)
+            end
+
+            # The join is unordered, so the scope's order is repeated outside --
+            # but only what the subquery projects can be named there. An order
+            # left behind still picks the rows; only their order falls to the
+            # database.
+            def outer_orders(relation)
+              orders = relation.arel.orders
+              return [] unless orders.all? { |order| projected?(order, relation) }
+
+              orders
+            end
+
+            def projected?(order, relation)
+              order = order.expr if order.is_a?(Arel::Nodes::Ordering)
+              return false unless order.is_a?(Arel::Attributes::Attribute)
+              return false unless order.relation.name == relation.model.arel_table.name
+
+              # Without a `select` every column comes back; with one, only a
+              # column named plainly in it.
+              relation.select_values.empty? || relation.select_values.any? do |value|
+                (value.is_a?(Symbol) || value.is_a?(String)) && value.to_s == order.name.to_s
+              end
+            end
         end
 
         class LoaderRecords

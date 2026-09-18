@@ -557,6 +557,11 @@ module Arel # :nodoc: all
           visit o.right, collector
         end
 
+        def visit_Arel_Nodes_CrossJoin(o, collector)
+          collector << "CROSS JOIN "
+          visit o.left, collector
+        end
+
         def visit_Arel_Nodes_InnerJoin(o, collector)
           collector << "INNER JOIN "
           collector = visit o.left, collector

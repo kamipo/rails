@@ -58,6 +58,7 @@ require "arel/nodes/window"
 require "arel/nodes/case"
 
 # joins
+require "arel/nodes/cross_join"
 require "arel/nodes/full_outer_join"
 require "arel/nodes/inner_join"
 require "arel/nodes/outer_join"

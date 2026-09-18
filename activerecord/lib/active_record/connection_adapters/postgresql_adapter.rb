@@ -555,6 +555,25 @@ module ActiveRecord
         true
       end
 
+      def supports_values_table?
+        true
+      end
+
+      def values_table(name, columns, rows, sql_types: nil)
+        # A bare placeholder leaves the database nothing to read a column's
+        # type from, so the first row casts; the rows after it are read
+        # against the first and are left alone.
+        first = columns.each_index.map { |i| sql_types&.[](i) ? "CAST(? AS #{sql_types[i]})" : "?" }
+        values = [ "(#{first.join(", ")})" ]
+        values.concat(Array.new(rows.size - 1, "(#{Array.new(columns.size, "?").join(", ")})"))
+
+        Arel.sql(
+          "(VALUES #{values.join(", ")}) AS #{quote_table_name(name)}" \
+            "(#{columns.map { |column| quote_column_name(column) }.join(", ")})",
+          *rows.flatten
+        )
+      end
+
       def supports_lazy_transactions?
         true
       end

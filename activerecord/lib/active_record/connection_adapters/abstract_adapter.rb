@@ -680,6 +680,21 @@ module ActiveRecord
         false
       end
 
+      # Can this adapter write a table of literal rows for a query to join
+      # against -- a +VALUES+ table value constructor, or whatever the database
+      # writes in its place?
+      def supports_values_table?
+        false
+      end
+
+      # A table of +rows+ for a query to join against, aliased to +name+ with
+      # +columns+ as its column names. +rows+ are arrays of Arel nodes, one per
+      # column, and +sql_types+ the columns' types, for a database that cannot
+      # read them off a placeholder.
+      def values_table(name, columns, rows, sql_types: nil)
+        raise NotImplementedError
+      end
+
       def supports_lazy_transactions?
         false
       end

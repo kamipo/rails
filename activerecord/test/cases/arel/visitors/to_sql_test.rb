@@ -27,6 +27,14 @@ module Arel
         }, compile(subquery.lateral("bar"))
       end
 
+      test "the to_sql visitor produces a CROSS JOIN" do
+        subquery = @table.project(:id).where(@table[:name].eq("foo"))
+        join = Nodes::CrossJoin.new(Nodes::TableAlias.new(subquery.lateral, "bar"))
+        assert_like %{
+          CROSS JOIN LATERAL (SELECT id FROM "users" WHERE "users"."name" = 'foo') "bar"
+        }, compile(join)
+      end
+
       test "the to_sql visitor works with BindParams" do
         node = Nodes::BindParam.new(1)
         sql = compile node

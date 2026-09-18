@@ -202,6 +202,23 @@ module ActiveRecord
         !mariadb? && database_version >= "8.0.14"
       end
 
+      def supports_values_table?
+        !mariadb? && database_version >= "8.0.19"
+      end
+
+      def values_table(name, columns, rows, sql_types: nil)
+        # MySQL spells each row `ROW(...)`, and reads the column types off the
+        # bind parameters, so nothing has to be cast. Its rows are unnamed
+        # (`column_0`, `column_1`, ...) until the alias names them.
+        values = Array.new(rows.size, "ROW(#{Array.new(columns.size, "?").join(", ")})")
+
+        Arel.sql(
+          "(VALUES #{values.join(", ")}) AS #{quote_table_name(name)}" \
+            "(#{columns.map { |column| quote_column_name(column) }.join(", ")})",
+          *rows.flatten
+        )
+      end
+
       def supports_advisory_locks?
         true
       end

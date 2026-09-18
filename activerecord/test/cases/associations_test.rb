@@ -2,6 +2,7 @@
 
 require "pp"
 require "cases/helper"
+require "active_support/core_ext/object/with"
 require "models/computer"
 require "models/developer"
 require "models/project"
@@ -840,6 +841,23 @@ class PreloaderTest < ActiveRecord::TestCase
     belongs_to :parent, class_name: name, foreign_key: :firm_id, optional: true
     belongs_to :mentor, class_name: name, foreign_key: :client_of, optional: true
     has_one :parents_mentor, through: :parent, source: :mentor
+  end
+
+  if ActiveRecord::Base.lease_connection.supports_values_table?
+    def test_preload_with_limit_on_a_model_with_a_composite_primary_key
+      authors = Cpk::Author.all.to_a
+      ActiveRecord.with(respect_association_scope_limits: true) do
+        ActiveRecord::Associations::Preloader.new(
+          records: authors, associations: :books, scope: Cpk::Book.order(:title).limit(1)
+        ).call
+      end
+
+      assert_predicate Cpk::Book, :composite_primary_key?
+      authors.each do |author|
+        expected = author.books.order(:title).limit(1).to_a
+        assert_equal expected, author.association(:books).target
+      end
+    end
   end
 
   def test_preload_with_scope
